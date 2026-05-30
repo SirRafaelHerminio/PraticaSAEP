@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SAEP — Gerador de Provas Práticas</title>
+  <meta name="description" content="Ferramenta para professores do SENAI criarem provas práticas diagnósticas no padrão SAEP com inteligência artificial.">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=DM+Serif+Display&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="site-header">
+  <div class="header-inner">
+    <div class="header-brand">
+      <span class="senai-mark">SENAI</span>
+      <span class="header-title">Gerador de Provas Práticas</span>
+    </div>
+    <div class="header-actions">
+      <button class="btn-config" id="btnConfig">
+        <div class="provider-dot" id="providerDot"></div>
+        <span id="btnConfigLabel">Configurar IA</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalConfig">
+  <div class="modal-box">
+    <div class="modal-top">
+      <div>
+        <h2>Provedor de IA</h2>
+        <p>Escolha o serviço e informe sua chave. Salva apenas no seu navegador.</p>
+      </div>
+      <button class="modal-close" onclick="closeConfig()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="provider-grid" id="providerGrid">
+        <div class="provider-card" id="prov-gemini" onclick="selectProvider('gemini')">
+          <div class="prov-logo gemini">G</div>
+          <div class="prov-name">Gemini</div>
+          <div class="prov-tag free">Gratuito</div>
+        </div>
+        <div class="provider-card" id="prov-groq" onclick="selectProvider('groq')">
+          <div class="prov-logo groq">Q</div>
+          <div class="prov-name">Groq</div>
+          <div class="prov-tag free">Gratuito</div>
+        </div>
+        <div class="provider-card" id="prov-openai" onclick="selectProvider('openai')">
+          <div class="prov-logo openai">⬡</div>
+          <div class="prov-name">OpenAI</div>
+          <div class="prov-tag">Pago</div>
+        </div>
+        <div class="provider-card" id="prov-anthropic" onclick="selectProvider('anthropic')">
+          <div class="prov-logo anthropic">◆</div>
+          <div class="prov-name">Claude</div>
+          <div class="prov-tag">Pago</div>
+        </div>
+      </div>
+
+      <div class="provider-info-box" id="providerInfoBox"></div>
+
+      <label class="field-label" for="apiKeyInput" id="apiKeyLabel">Chave de API</label>
+      <div class="api-input-row">
+        <input type="password" id="apiKeyInput" placeholder="Selecione um provedor acima..." disabled autocomplete="off">
+        <button class="btn-eye" onclick="toggleApiVis()"><i class="ti ti-eye" id="eyeIcon"></i></button>
+      </div>
+      <p class="field-hint" id="apiKeyHint"></p>
+
+      <p class="security-note">
+        <i class="ti ti-lock"></i>
+        Chaves salvas somente no seu navegador via <code>localStorage</code>. Nenhum servidor externo tem acesso.
+      </p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeConfig()">Cancelar</button>
+      <button class="btn-solid" id="btnSaveKey" onclick="saveApiKey()" disabled>Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- API WARNING -->
+<div class="api-warning" id="apiWarning" style="display:none">
+  <i class="ti ti-alert-triangle"></i>
+  Nenhum provedor configurado.
+  <button onclick="openConfig()">Configurar agora</button>
+</div>
+
+<!-- HERO -->
+<div class="hero">
+  <p class="hero-eyebrow">Sistema SAEP</p>
+  <h1>Provas práticas<br>em minutos.</h1>
+  <p class="hero-sub">Selecione o curso, a dificuldade e deixe a IA gerar uma prova diagnóstica completa no padrão SENAI.</p>
+</div>
+
+<!-- PROGRESS -->
+<div class="progress-bar">
+  <div class="prog-step">
+    <div class="prog-num active" id="sn1">1</div>
+    <span class="prog-label active">Curso</span>
+  </div>
+  <span class="prog-sep">/</span>
+  <div class="prog-step">
+    <div class="prog-num" id="sn2">2</div>
+    <span class="prog-label" id="pl2">Dificuldade</span>
+  </div>
+  <span class="prog-sep">/</span>
+  <div class="prog-step">
+    <div class="prog-num" id="sn3">3</div>
+    <span class="prog-label" id="pl3">Configurações</span>
+  </div>
+  <span class="prog-sep">/</span>
+  <div class="prog-step">
+    <div class="prog-num" id="sn4">4</div>
+    <span class="prog-label" id="pl4">Gerar</span>
+  </div>
+</div>
+
+<!-- MAIN -->
+<main class="main-content">
+
+  <div class="validation-msg" id="valMsg">
+    <i class="ti ti-alert-circle"></i>
+    <span id="valText"></span>
+  </div>
+
+  <!-- 1. CURSO -->
+  <div class="section" id="cardCurso">
+    <p class="section-label">1 — Curso técnico</p>
+    <div class="search-wrap">
+      <i class="ti ti-search"></i>
+      <input type="text" id="courseSearch" placeholder="Buscar curso..." oninput="filterCourses()" autocomplete="off">
+    </div>
+    <div class="courses-grid" id="coursesGrid"></div>
+    <div id="selectedCourseInfo" style="display:none">
+      <div class="selected-pill">
+        <i class="ti ti-check"></i>
+        <span id="selectedCourseName"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. DIFICULDADE -->
+  <div class="section" id="cardDiff">
+    <p class="section-label">2 — Nível de dificuldade</p>
+    <div class="diff-grid">
+      <div class="diff-item diff-easy" id="diff-easy" onclick="selectDiff('easy')">
+        <div class="diff-indicator"></div>
+        <div class="diff-name">Fácil</div>
+        <div class="diff-desc">Conceitos fundamentais. Diagnóstica de início de módulo.</div>
+        <div class="diff-meta">1–2 entregas · 1h30</div>
+      </div>
+      <div class="diff-item diff-med" id="diff-med" onclick="selectDiff('med')">
+        <div class="diff-indicator"></div>
+        <div class="diff-name">Médio</div>
+        <div class="diff-desc">Aplicação prática de conhecimentos intermediários.</div>
+        <div class="diff-meta">3–4 entregas · 2h</div>
+      </div>
+      <div class="diff-item diff-hard" id="diff-hard" onclick="selectDiff('hard')">
+        <div class="diff-indicator"></div>
+        <div class="diff-name">Difícil</div>
+        <div class="diff-desc">Integração total de competências. Padrão SAEP real.</div>
+        <div class="diff-meta">4–5 entregas · 3h</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. CONFIGURAÇÕES -->
+  <div class="section" id="cardAssets">
+    <p class="section-label">3 — Assets externos</p>
+    <div class="toggle-row" onclick="toggleAssets()" id="assetsToggleRow">
+      <div class="toggle-sw" id="assetsToggle"></div>
+      <div class="toggle-text">
+        <div class="t-main">Esta prova usará assets ou anexos externos</div>
+        <div class="t-sub">Imagens, esquemas, arquivos, etc.</div>
+      </div>
+    </div>
+    <div class="drive-field" id="driveInput">
+      <label class="field-label" for="driveLink" style="margin-top:.8rem">Link do Google Drive</label>
+      <input type="url" id="driveLink" placeholder="https://drive.google.com/drive/folders/...">
+      <p class="field-hint" style="margin-top:.4rem">O link será incluído na seção de Anexos da prova.</p>
+    </div>
+  </div>
+
+  <!-- 4. FORMATO -->
+  <div class="section" id="cardFormato">
+    <p class="section-label">4 — Formato de entrega</p>
+    <div class="format-grid">
+      <div class="fmt-item" id="fmt-pdf" onclick="selectFormat('pdf')">
+        <i class="ti ti-file-type-pdf"></i>
+        <div>
+          <div class="fmt-name">PDF</div>
+          <div class="fmt-desc">Pronto para imprimir ou enviar</div>
+        </div>
+      </div>
+      <div class="fmt-item" id="fmt-docx" onclick="selectFormat('docx')">
+        <i class="ti ti-file-type-doc"></i>
+        <div>
+          <div class="fmt-name">DOCX</div>
+          <div class="fmt-desc">Editável no Word</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTÃO -->
+  <div class="gen-area">
+    <button class="gen-btn" id="genBtn" onclick="generateProva()">
+      <i class="ti ti-wand"></i>
+      Gerar prova
+    </button>
+  </div>
+
+  <!-- LOADING -->
+  <div class="loading-area" id="loadingArea">
+    <div class="spinner"></div>
+    <p class="loading-text" id="loadingText">Analisando o currículo...</p>
+    <p class="loading-sub"  id="loadingSub">Aguarde</p>
+  </div>
+
+  <!-- RESULTADO -->
+  <div class="result-area" id="resultArea">
+    <div class="result-topbar">
+      <h2>Prova gerada</h2>
+      <div class="result-actions">
+        <button class="btn-sm" id="copyBtn" onclick="copyProva()"><i class="ti ti-copy"></i> Copiar</button>
+        <button class="btn-sm" onclick="printProva()"><i class="ti ti-printer"></i> Imprimir</button>
+        <button class="btn-sm" onclick="resetForm()"><i class="ti ti-refresh"></i> Nova prova</button>
+      </div>
+    </div>
+    <div class="result-meta" id="resultMeta"></div>
+    <div class="result-body" id="resultBody"></div>
+  </div>
+
+</main>
+
+<footer class="site-footer">
+  <div class="footer-brand">
+    <span class="senai-mark" style="font-size:11px;padding:3px 7px">SENAI</span>
+    Sistema de Avaliação da Educação Profissional
+  </div>
+  <span class="footer-info">Powered by IA</span>
+</footer>
+
+<script src="js/courses.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
