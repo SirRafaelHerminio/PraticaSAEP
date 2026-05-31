@@ -131,8 +131,18 @@ function saveApiKey() {
     return;
   }
   if (!key.startsWith(p.prefix)) {
-    showValidation(`A chave do ${p.name} deve começar com "${p.prefix}". Verifique se copiou corretamente.`);
+    showValidation(`A chave do ${p.name} deve começar com "${p.prefix}". Verifique se copiou corretamente (sem espaços extras).`);
     return;
+  }
+
+  // Aviso específico para Gemini: restrição obrigatória a partir de 19/06/2026
+  if (modalSelectedProvider === 'gemini') {
+    const deadline = new Date('2026-06-19');
+    const today    = new Date();
+    if (today < deadline) {
+      const dias = Math.ceil((deadline - today) / (1000 * 60 * 60 * 24));
+      showToast(`⚠️ A partir de 19/06/2026 (em ${dias} dias), chaves Gemini precisarão ter restrição de API configurada no Google Cloud Console. Acesse aistudio.google.com para ajustar.`, 'info');
+    }
   }
 
   localStorage.setItem(p.storageKey, key);
@@ -529,7 +539,7 @@ async function callGemini(prompt, key) {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    if (res.status === 400 || res.status === 403) throw new Error('API_KEY_INVALID');
+    if (res.status === 401 || res.status === 403) throw new Error('API_KEY_INVALID');
     if (res.status === 429) throw new Error('API_RATE_LIMIT');
     throw new Error(err.error?.message || `HTTP ${res.status}`);
   }
