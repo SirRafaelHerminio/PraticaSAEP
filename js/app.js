@@ -21,10 +21,14 @@ const PROVIDERS = {
     name:        'Google Gemini',
     shortName:   'Gemini',
     free:        true,
-    placeholder: 'AIza...',
-    prefix:      'AIza',
-    model:       'gemini-2.0-flash',
-    docsUrl:     'https://aistudio.google.com/app/apikey',
+    placeholder: 'AIza... ou AQ.Ab...',
+    // O Google AI Studio agora gera dois formatos de chave:
+    // - Chaves antigas: começam com "AIza" (ex: AIzaSy...)
+    // - Chaves novas:   começam com "AQ."  (ex: AQ.Ab...)
+    prefixes:    ['AIza', 'AQ.'],
+    prefix:      'AIza',           // mantido por compatibilidade (não usado na validação)
+    model:       'gemini-2.5-flash',
+    docsUrl:     'https://aistudio.google.com/apikey',
     docsLabel:   'aistudio.google.com',
     hint:        'Gratuito. Obtenha em',
     storageKey:  'saep_gemini_key',
@@ -130,8 +134,13 @@ function saveApiKey() {
     showValidation('Informe a chave de API antes de salvar.');
     return;
   }
-  if (!key.startsWith(p.prefix)) {
-    showValidation(`A chave do ${p.name} deve começar com "${p.prefix}". Verifique se copiou corretamente (sem espaços extras).`);
+
+  // Suporte a múltiplos prefixos (ex: Gemini aceita "AIza" e "AQ.")
+  const validPrefixes = p.prefixes || [p.prefix];
+  const prefixOk = validPrefixes.some(px => key.startsWith(px));
+  if (!prefixOk) {
+    const exs = validPrefixes.map(px => `"${px}"`).join(' ou ');
+    showValidation(`A chave do ${p.name} deve começar com ${exs}. Verifique se copiou corretamente (sem espaços extras).`);
     return;
   }
 
