@@ -21,14 +21,10 @@ const PROVIDERS = {
     name:        'Google Gemini',
     shortName:   'Gemini',
     free:        true,
-    placeholder: 'AIza... ou AQ.Ab...',
-    // O Google AI Studio agora gera dois formatos de chave:
-    // - Chaves antigas: começam com "AIza" (ex: AIzaSy...)
-    // - Chaves novas:   começam com "AQ."  (ex: AQ.Ab...)
-    prefixes:    ['AIza', 'AQ.'],
-    prefix:      'AIza',           // mantido por compatibilidade (não usado na validação)
-    model:       'gemini-2.5-flash',
-    docsUrl:     'https://aistudio.google.com/apikey',
+    placeholder: 'AIza...',
+    prefix:      'AIza',
+    model:       'gemini-2.0-flash',
+    docsUrl:     'https://aistudio.google.com/app/apikey',
     docsLabel:   'aistudio.google.com',
     hint:        'Gratuito. Obtenha em',
     storageKey:  'saep_gemini_key',
@@ -134,13 +130,8 @@ function saveApiKey() {
     showValidation('Informe a chave de API antes de salvar.');
     return;
   }
-
-  // Suporte a múltiplos prefixos (ex: Gemini aceita "AIza" e "AQ.")
-  const validPrefixes = p.prefixes || [p.prefix];
-  const prefixOk = validPrefixes.some(px => key.startsWith(px));
-  if (!prefixOk) {
-    const exs = validPrefixes.map(px => `"${px}"`).join(' ou ');
-    showValidation(`A chave do ${p.name} deve começar com ${exs}. Verifique se copiou corretamente (sem espaços extras).`);
+  if (!key.startsWith(p.prefix)) {
+    showValidation(`A chave do ${p.name} deve começar com "${p.prefix}". Verifique se copiou corretamente (sem espaços extras).`);
     return;
   }
 
@@ -409,6 +400,10 @@ function buildPrompt() {
     },
   }[diff];
 
+  const contextLine = course.context
+    ? `\nCONTEXTO ESPECÍFICO DO CURSO — LEIA ANTES DE GERAR:\n${course.context}\n`
+    : '';
+
   const driveLine = (assetsEnabled && driveLink)
     ? `\nO professor disponibilizou materiais e assets externos em: ${driveLink} — inclua esse link na seção ANEXOS.`
     : '';
@@ -432,7 +427,7 @@ ${fmtLine}
 ${driveLine}
 ═══════════════════════════════════════════
 
-INSTRUÇÃO PRINCIPAL — LEIA COM ATENÇÃO:
+${contextLine}INSTRUÇÃO PRINCIPAL — LEIA COM ATENÇÃO:
 Você conhece o currículo oficial do SENAI para o curso de ${course.name}. Use esse conhecimento para:
 1. Identificar as Unidades Curriculares reais desse curso e suas competências
 2. Selecionar as UCs adequadas para o nível ${diffConfig.label}
