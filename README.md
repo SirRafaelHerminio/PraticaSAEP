@@ -4,6 +4,32 @@ Ferramenta para professores dos Cursos Técnicos do SENAI criarem provas prátic
 
 ---
 
+## 🌐 Configurar domínio personalizado (I7)
+
+Para trocar a URL de `usuario.github.io/saep-gerador` para algo como `saep.senai-sc.org.br`:
+
+### Passo 1 — Criar o arquivo CNAME no repositório
+Crie um arquivo chamado `CNAME` (sem extensão) na raiz do repositório com o domínio desejado:
+```
+saep.senai-sc.org.br
+```
+
+### Passo 2 — Configurar o DNS
+No painel do provedor de DNS do SENAI, adicione um registro:
+
+| Tipo | Nome | Valor |
+|------|------|-------|
+| `CNAME` | `saep` | `SEU_USUARIO.github.io` |
+
+> Se for um domínio raiz (sem subdomínio), use 4 registros `A` apontando para os IPs do GitHub Pages: `185.199.108.153`, `185.199.109.153`, `185.199.110.153`, `185.199.111.153`
+
+### Passo 3 — Ativar no GitHub Pages
+Em **Settings → Pages**, o campo "Custom domain" será preenchido automaticamente pelo arquivo CNAME. Marque **"Enforce HTTPS"**.
+
+> ⏱ A propagação DNS pode levar até 48h. O GitHub Pages emite o certificado SSL automaticamente.
+
+---
+
 ## ✨ Funcionalidades
 
 - Seleção entre **17 cursos técnicos** do SENAI

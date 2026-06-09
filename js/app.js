@@ -15,7 +15,377 @@ const state = {
   isLoading:      false,
 };
 
-/* ── Provedores de IA ─────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════
+   SISTEMA DE CHAVES — Modo Institucional + Modo Professor
+   ══════════════════════════════════════════════════════════ */
+
+const STORAGE = {
+  ACTIVE_PROVIDER:   'saep_active_provider',
+  INST_PROVIDER:     'saep_inst_provider',    // provedor institucional
+  INST_KEY:          'saep_inst_key',         // chave institucional (criptografada simples)
+  ADMIN_HASH:        'saep_admin_hash',        // hash da senha admin
+  GEMINI_KEY:        'saep_gemini_key',
+  GROQ_KEY:          'saep_groq_key',
+  OPENAI_KEY:        'saep_openai_key',
+  ANTHROPIC_KEY:     'saep_anthropic_api_key',
+};
+
+// Provedor selecionado atualmente no modal (modo professor)
+let modalSelectedProvider  = null;
+// Provedor selecionado no painel admin
+let adminSelectedProvider  = null;
+// Modo atual do modal: 'professor' | 'admin'
+let currentModalMode = 'professor';
+// Admin autenticado nesta sessão
+let adminAuthenticated = false;
+
+/* ── Chave de acesso ──────────────────────────────────────── */
+function getActiveProvider() {
+  // Institucional tem prioridade
+  const inst = localStorage.getItem(STORAGE.INST_PROVIDER);
+  const instKey = getInstitutionalKey();
+  if (inst && instKey) return inst;
+  return localStorage.getItem(STORAGE.ACTIVE_PROVIDER) || null;
+}
+
+function getKeyForProvider(providerId) {
+  const p = PROVIDERS[providerId];
+  if (!p) return '';
+  // Verifica se há chave institucional para este provedor
+  if (localStorage.getItem(STORAGE.INST_PROVIDER) === providerId) {
+    const instKey = getInstitutionalKey();
+    if (instKey) return instKey;
+  }
+  return localStorage.getItem(p.storageKey) || '';
+}
+
+function getActiveKey() {
+  const active = getActiveProvider();
+  return active ? getKeyForProvider(active) : '';
+}
+
+function hasInstitutionalKey() {
+  return !!(localStorage.getItem(STORAGE.INST_PROVIDER) &&
+            localStorage.getItem(STORAGE.INST_KEY));
+}
+
+function getInstitutionalKey() {
+  const stored = localStorage.getItem(STORAGE.INST_KEY);
+  if (!stored) return '';
+  // XOR decode simples (ofuscação, não criptografia real)
+  return xorCipher(atob(stored), 'saep_senai_2025');
+}
+
+function setInstitutionalKey(providerId, key) {
+  const encoded = btoa(xorCipher(key, 'saep_senai_2025'));
+  localStorage.setItem(STORAGE.INST_PROVIDER, providerId);
+  localStorage.setItem(STORAGE.INST_KEY, encoded);
+}
+
+function clearInstitutionalKey() {
+  localStorage.removeItem(STORAGE.INST_PROVIDER);
+  localStorage.removeItem(STORAGE.INST_KEY);
+}
+
+function xorCipher(str, key) {
+  return str.split('').map((c, i) =>
+    String.fromCharCode(c.charCodeAt(0) ^ key.charCodeAt(i % key.length))
+  ).join('');
+}
+
+/* ── Hash simples para senha admin ────────────────────────── */
+async function hashPassword(password) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password + 'saep_salt_2025');
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function verifyPassword(password) {
+  const storedHash = localStorage.getItem(STORAGE.ADMIN_HASH);
+  if (!storedHash) {
+    // Sem senha definida: qualquer input libera (primeira configuração)
+    return password.length >= 6;
+  }
+  const inputHash = await hashPassword(password);
+  return inputHash === storedHash;
+}
+
+/* ── Troca de modo no modal ───────────────────────────────── */
+function switchMode(mode) {
+  currentModalMode = mode;
+  const isProfessor = mode === 'professor';
+
+  document.getElementById('tabProfessor').classList.toggle('active', isProfessor);
+  document.getElementById('tabAdmin').classList.toggle('active', !isProfessor);
+  document.getElementById('modeProfessor').style.display = isProfessor ? 'block' : 'none';
+  document.getElementById('modeAdmin').style.display     = isProfessor ? 'none'  : 'block';
+
+  if (!isProfessor && !adminAuthenticated) {
+    document.getElementById('adminStepAuth').style.display   = 'block';
+    document.getElementById('adminStepConfig').style.display = 'none';
+  }
+  if (!isProfessor && adminAuthenticated) {
+    document.getElementById('adminStepAuth').style.display   = 'none';
+    document.getElementById('adminStepConfig').style.display = 'block';
+    prefillAdminPanel();
+  }
+
+  document.getElementById('btnSaveKey').disabled = !isProfessor;
+}
+
+/* ── Autenticação admin ───────────────────────────────────── */
+async function authenticateAdmin() {
+  const pw = document.getElementById('adminPassword').value;
+  if (!pw) { showToast('Informe a senha de administrador.', 'error'); return; }
+
+  const ok = await verifyPassword(pw);
+  if (!ok) {
+    showToast('Senha incorreta.', 'error');
+    document.getElementById('adminPassword').style.borderColor = '#e24b4a';
+    return;
+  }
+
+  adminAuthenticated = true;
+  document.getElementById('adminStepAuth').style.display   = 'none';
+  document.getElementById('adminStepConfig').style.display = 'block';
+  document.getElementById('btnSaveKey').disabled = false;
+  prefillAdminPanel();
+}
+
+function prefillAdminPanel() {
+  const instProv = localStorage.getItem(STORAGE.INST_PROVIDER);
+  if (instProv) {
+    selectAdminProvider(instProv);
+    const key = getInstitutionalKey();
+    if (key) document.getElementById('adminKeyInput').value = key;
+  }
+}
+
+/* ── Seleção de provedor no painel admin ──────────────────── */
+function selectAdminProvider(id) {
+  adminSelectedProvider = id;
+  const p = PROVIDERS[id];
+
+  Object.keys(PROVIDERS).forEach(pid => {
+    const el = document.getElementById('admin-prov-' + pid);
+    if (el) el.classList.toggle('selected', pid === id);
+  });
+
+  const input = document.getElementById('adminKeyInput');
+  input.placeholder = p.placeholder;
+  input.disabled    = false;
+  document.getElementById('adminKeyLabel').textContent = `Chave institucional — ${p.name}`;
+  document.getElementById('adminKeyHint').innerHTML =
+    `${p.hint} <a href="${p.docsUrl}" target="_blank" rel="noopener">${p.docsLabel} <i class="ti ti-external-link"></i></a>`;
+}
+
+/* ── Salva configuração (unificado) ───────────────────────── */
+async function saveConfig() {
+  if (currentModalMode === 'professor') {
+    saveApiKey();
+  } else {
+    await saveAdminConfig();
+  }
+}
+
+async function saveAdminConfig() {
+  if (!adminAuthenticated) {
+    showToast('Autentique-se como administrador primeiro.', 'error');
+    return;
+  }
+  if (!adminSelectedProvider) {
+    showToast('Selecione um provedor institucional.', 'error');
+    return;
+  }
+
+  const key  = document.getElementById('adminKeyInput').value.trim();
+  const p    = PROVIDERS[adminSelectedProvider];
+  const newPw = document.getElementById('adminNewPassword').value.trim();
+
+  if (!key) {
+    showToast('Informe a chave institucional.', 'error');
+    return;
+  }
+  if (!key.startsWith(p.prefix)) {
+    showToast(`Chave inválida. Deve começar com "${p.prefix}".`, 'error');
+    return;
+  }
+
+  // Salva chave institucional
+  setInstitutionalKey(adminSelectedProvider, key);
+
+  // Salva nova senha se informada
+  if (newPw) {
+    if (newPw.length < 6) {
+      showToast('A senha deve ter pelo menos 6 caracteres.', 'error');
+      return;
+    }
+    const hash = await hashPassword(newPw);
+    localStorage.setItem(STORAGE.ADMIN_HASH, hash);
+  } else if (!localStorage.getItem(STORAGE.ADMIN_HASH)) {
+    // Primeira config sem senha: define hash vazio bloqueante
+    const hash = await hashPassword('saep2025');
+    localStorage.setItem(STORAGE.ADMIN_HASH, hash);
+    showToast(`Configurado! Senha padrão: saep2025 — altere em seguida.`, 'info');
+  }
+
+  closeConfig();
+  checkApiKey();
+  updateProviderBadge();
+  showToast(`Chave institucional (${p.name}) configurada com sucesso!`, 'success');
+}
+
+/* ── Salva chave do professor ─────────────────────────────── */
+function saveApiKey() {
+  if (!modalSelectedProvider) {
+    showToast('Selecione um provedor de IA primeiro.', 'error');
+    return;
+  }
+  const key = document.getElementById('apiKeyInput').value.trim();
+  const p   = PROVIDERS[modalSelectedProvider];
+
+  if (!key) { showValidation('Informe a chave de API antes de salvar.'); return; }
+  if (!key.startsWith(p.prefix)) {
+    showValidation(`A chave do ${p.name} deve começar com "${p.prefix}".`);
+    return;
+  }
+
+  localStorage.setItem(p.storageKey, key);
+  localStorage.setItem(STORAGE.ACTIVE_PROVIDER, modalSelectedProvider);
+  closeConfig();
+  updateProviderBadge();
+  checkApiKey();
+  showToast(`${p.name} configurado com sucesso!`, 'success');
+}
+
+/* ── Seleciona provedor (modo professor) ──────────────────── */
+function selectProvider(id) {
+  modalSelectedProvider = id;
+  const p = PROVIDERS[id];
+
+  Object.keys(PROVIDERS).forEach(pid => {
+    document.getElementById('prov-' + pid).classList.toggle('selected', pid === id);
+  });
+
+  const infoBox = document.getElementById('providerInfoBox');
+  infoBox.innerHTML = `
+    <div class="prov-info-content">
+      <i class="ti ${p.free ? 'ti-star' : 'ti-credit-card'}" style="color:${p.free ? '#16a34a' : '#d97706'}"></i>
+      <span>${p.free ? '✅ Plano gratuito disponível' : '💳 Requer conta com créditos'} — Modelo: <strong>${p.model}</strong></span>
+    </div>`;
+  infoBox.classList.add('show');
+
+  const input = document.getElementById('apiKeyInput');
+  input.placeholder = p.placeholder;
+  input.disabled    = false;
+  input.value       = getKeyForProvider(id);
+  document.getElementById('apiKeyLabel').textContent = `Chave de API — ${p.name}`;
+  document.getElementById('apiKeyHint').innerHTML =
+    `${p.hint} <a href="${p.docsUrl}" target="_blank" rel="noopener">${p.docsLabel} <i class="ti ti-external-link"></i></a>`;
+  document.getElementById('btnSaveKey').disabled = false;
+}
+
+/* ── Atualiza badge no header ─────────────────────────────── */
+function updateProviderBadge() {
+  const active = getActiveProvider();
+  const dot    = document.getElementById('providerDot');
+  const label  = document.getElementById('btnConfigLabel');
+  const isInst = hasInstitutionalKey();
+
+  if (active && PROVIDERS[active]) {
+    dot.classList.add('active');
+    label.textContent = isInst
+      ? PROVIDERS[active].shortName + ' · Institucional'
+      : PROVIDERS[active].shortName + ' configurado';
+  } else {
+    dot.classList.remove('active');
+    label.textContent = 'Configurar IA';
+  }
+}
+
+/* ── Verifica configuração ao carregar ────────────────────── */
+function checkApiKey() {
+  const warning = document.getElementById('apiWarning');
+  const active  = getActiveProvider();
+  const hasKey  = active && getKeyForProvider(active);
+  warning.style.display = hasKey ? 'none' : 'block';
+  updateProviderBadge();
+}
+
+/* ── Abre modal ───────────────────────────────────────────── */
+function openConfig() {
+  const modal = document.getElementById('modalConfig');
+  modal.classList.add('open');
+  currentModalMode   = 'professor';
+  adminAuthenticated = false;
+
+  // Mostra banner de chave institucional se existir
+  const instBanner = document.getElementById('instBanner');
+  const ownSection = document.getElementById('ownKeySection');
+  if (hasInstitutionalKey()) {
+    instBanner.style.display = 'flex';
+    ownSection.style.display = 'none';
+    document.getElementById('btnSaveKey').disabled = true;
+  } else {
+    instBanner.style.display = 'none';
+    ownSection.style.display = 'block';
+    document.getElementById('btnSaveKey').disabled = true;
+    // Pré-seleciona provedor ativo
+    const active = localStorage.getItem(STORAGE.ACTIVE_PROVIDER);
+    if (active && PROVIDERS[active]) selectProvider(active);
+    else selectProvider('gemini');
+  }
+
+  // Garante modo professor visível
+  document.getElementById('modeProfessor').style.display = 'block';
+  document.getElementById('modeAdmin').style.display     = 'none';
+  document.getElementById('tabProfessor').classList.add('active');
+  document.getElementById('tabAdmin').classList.remove('active');
+}
+
+function closeConfig() {
+  document.getElementById('modalConfig').classList.remove('open');
+  modalSelectedProvider = null;
+  adminAuthenticated    = false;
+}
+
+/* ── Visibilidade de senha ────────────────────────────────── */
+function toggleApiVis() {
+  const input = document.getElementById('apiKeyInput');
+  const icon  = document.getElementById('eyeIcon');
+  input.type  = input.type === 'password' ? 'text' : 'password';
+  icon.className = input.type === 'password' ? 'ti ti-eye' : 'ti ti-eye-off';
+}
+
+function toggleAdminPassVis() {
+  const input = document.getElementById('adminPassword');
+  const icon  = document.getElementById('eyeAdminPass');
+  input.type  = input.type === 'password' ? 'text' : 'password';
+  icon.className = input.type === 'password' ? 'ti ti-eye' : 'ti ti-eye-off';
+}
+
+function toggleAdminKeyVis() {
+  const input = document.getElementById('adminKeyInput');
+  const icon  = document.getElementById('eyeAdminKey');
+  input.type  = input.type === 'password' ? 'text' : 'password';
+  icon.className = input.type === 'password' ? 'ti ti-eye' : 'ti ti-eye-off';
+}
+
+
+/* ── Chave institucional padrão (Groq) ────────────────────── */
+// Configurada pelo administrador do sistema.
+// Professores usam automaticamente sem precisar de conta própria.
+// Para trocar: acesse Configurações → aba Admin no site.
+(function initInstitutionalKey() {
+  // Só injeta se ainda não houver chave institucional configurada
+  if (localStorage.getItem('saep_inst_key')) return;
+  const INST_ENCODED   = 'FBIOLzE5KlokK29IdgZSJiY/Rmw7NSImPhhWSVAGNTgVGBMnVCAjWh14WUZBAwAkADshEQMXAm4=';
+  const INST_PROVIDER  = 'groq';
+  localStorage.setItem('saep_inst_provider', INST_PROVIDER);
+  localStorage.setItem('saep_inst_key',      INST_ENCODED);
+})();
+
 const PROVIDERS = {
   gemini: {
     name:        'Google Gemini',
@@ -131,18 +501,8 @@ function saveApiKey() {
     return;
   }
   if (!key.startsWith(p.prefix)) {
-    showValidation(`A chave do ${p.name} deve começar com "${p.prefix}". Verifique se copiou corretamente (sem espaços extras).`);
+    showValidation(`A chave do ${p.name} deve começar com "${p.prefix}". Verifique se copiou corretamente.`);
     return;
-  }
-
-  // Aviso específico para Gemini: restrição obrigatória a partir de 19/06/2026
-  if (modalSelectedProvider === 'gemini') {
-    const deadline = new Date('2026-06-19');
-    const today    = new Date();
-    if (today < deadline) {
-      const dias = Math.ceil((deadline - today) / (1000 * 60 * 60 * 24));
-      showToast(`⚠️ A partir de 19/06/2026 (em ${dias} dias), chaves Gemini precisarão ter restrição de API configurada no Google Cloud Console. Acesse aistudio.google.com para ajustar.`, 'info');
-    }
   }
 
   localStorage.setItem(p.storageKey, key);
@@ -400,10 +760,6 @@ function buildPrompt() {
     },
   }[diff];
 
-  const contextLine = course.context
-    ? `\nCONTEXTO ESPECÍFICO DO CURSO — LEIA ANTES DE GERAR:\n${course.context}\n`
-    : '';
-
   const driveLine = (assetsEnabled && driveLink)
     ? `\nO professor disponibilizou materiais e assets externos em: ${driveLink} — inclua esse link na seção ANEXOS.`
     : '';
@@ -427,7 +783,7 @@ ${fmtLine}
 ${driveLine}
 ═══════════════════════════════════════════
 
-${contextLine}INSTRUÇÃO PRINCIPAL — LEIA COM ATENÇÃO:
+INSTRUÇÃO PRINCIPAL — LEIA COM ATENÇÃO:
 Você conhece o currículo oficial do SENAI para o curso de ${course.name}. Use esse conhecimento para:
 1. Identificar as Unidades Curriculares reais desse curso e suas competências
 2. Selecionar as UCs adequadas para o nível ${diffConfig.label}
@@ -543,7 +899,7 @@ async function callGemini(prompt, key) {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    if (res.status === 401 || res.status === 403) throw new Error('API_KEY_INVALID');
+    if (res.status === 400 || res.status === 403) throw new Error('API_KEY_INVALID');
     if (res.status === 429) throw new Error('API_RATE_LIMIT');
     throw new Error(err.error?.message || `HTTP ${res.status}`);
   }
@@ -784,7 +1140,107 @@ function copyProva() {
   });
 }
 
-/* ── Imprimir / Salvar como PDF ───────────────────────────── */
+/* ── Tutorial / Onboarding (I6) ───────────────────────────── */
+const ONBOARDING_KEY = 'saep_onboarding_done';
+
+function initOnboarding() {
+  if (!localStorage.getItem(ONBOARDING_KEY)) {
+    document.getElementById('onboardingBanner').style.display = 'block';
+  }
+}
+
+function dismissOnboarding() {
+  localStorage.setItem(ONBOARDING_KEY, '1');
+  document.getElementById('onboardingBanner').style.display = 'none';
+}
+
+function openHelp() {
+  document.getElementById('modalHelp').classList.add('open');
+  dismissOnboarding();
+}
+
+function closeHelp() {
+  document.getElementById('modalHelp').classList.remove('open');
+}
+
+function toggleFaq(el) {
+  el.classList.toggle('open');
+}
+
+
+let editMode = false;
+
+function toggleEdit() {
+  editMode = !editMode;
+  const body     = document.getElementById('resultBody');
+  const editor   = document.getElementById('resultEditor');
+  const textarea = document.getElementById('editorTextarea');
+  const btn      = document.getElementById('btnToggleEdit');
+
+  if (editMode) {
+    textarea.value = state.generatedText;
+    body.style.display   = 'none';
+    editor.style.display = 'block';
+    btn.innerHTML = '<i class="ti ti-eye"></i> Visualizar';
+    btn.classList.add('active');
+  } else {
+    // Sincroniza edições e re-renderiza
+    state.generatedText = textarea.value;
+    body.style.display   = 'block';
+    editor.style.display = 'none';
+    btn.innerHTML = '<i class="ti ti-pencil"></i> Editar';
+    btn.classList.remove('active');
+    renderResult(state.generatedText);
+  }
+}
+
+function syncEditToState() {
+  state.generatedText = document.getElementById('editorTextarea').value;
+}
+
+
+function downloadPDF() {
+  if (!state.generatedText) return;
+
+  const btn = document.getElementById('btnDownloadPDF');
+  btn.innerHTML = '<i class="ti ti-loader-2 spin"></i> Gerando...';
+  btn.disabled = true;
+
+  // Pequeno delay para o browser renderizar o botão antes de bloquear
+  setTimeout(() => {
+    try {
+      exportPDF(state.generatedText, {
+        course:      state.selectedCourse.name,
+        diff:        state.selectedDiff,
+        itinerario:  '{{itinerario}}',
+        date:        new Date().toLocaleString('pt-BR'),
+      });
+      showToast('PDF gerado com sucesso!', 'success');
+    } catch(e) {
+      showToast('Erro ao gerar PDF: ' + e.message, 'error');
+      console.error(e);
+    }
+    btn.innerHTML = '<i class="ti ti-file-type-pdf"></i> Baixar PDF';
+    btn.disabled = false;
+  }, 80);
+}
+
+/* ── Exportar DOCX ────────────────────────────────────────── */
+function downloadDOCX() {
+  if (!state.generatedText) return;
+  try {
+    exportDOCX(state.generatedText, {
+      course: state.selectedCourse.name,
+      diff:   state.selectedDiff,
+      date:   new Date().toLocaleString('pt-BR'),
+    });
+    showToast('Arquivo DOCX gerado!', 'success');
+  } catch(e) {
+    showToast('Erro ao gerar DOCX: ' + e.message, 'error');
+  }
+}
+
+/* ── Imprimir (fallback) ──────────────────────────────────── */
 function printProva() {
   window.print();
 }
@@ -824,6 +1280,9 @@ function resetForm() {
   document.getElementById('assetsToggleRow').setAttribute('aria-checked', 'false');
   document.getElementById('resultArea').className   = 'result-area';
   document.getElementById('valMsg').className       = 'validation-msg';
+  document.getElementById('resultBody').style.display   = 'block';
+  document.getElementById('resultEditor').style.display = 'none';
+  editMode = false;
 
   ['easy', 'med', 'hard'].forEach(x => {
     document.getElementById('diff-' + x).className = 'diff-item diff-' + x;
@@ -858,6 +1317,140 @@ document.addEventListener('DOMContentLoaded', () => {
   renderCourses(COURSES);
   checkApiKey();
   updateProviderBadge();
+  initOnboarding();
 
   document.getElementById('btnConfig').addEventListener('click', openConfig);
+  document.getElementById('btnHelp').addEventListener('click', openHelp);
+  document.getElementById('modalHelp').addEventListener('click', function(e) {
+    if (e.target === this) closeHelp();
+  });
 });
+
+/* ── Prova de exemplo (I5) ────────────────────────────────── */
+const EXAMPLE_PROVA = {
+  course: { id: 'iot', name: 'Internet das Coisas (IoT)', area: 'Tecnologia da Informação' },
+  diff:   'hard',
+  format: 'pdf',
+  text: `CADERNO DE PROVA DO ESTUDANTE
+
+Curso: Internet das Coisas (IoT)
+Versão do Itinerário Formativo: {{itinerario}}
+Estudante: {{nome}}
+CPF: {{cpf}}
+UF: {{uf}}
+
+---
+ORIENTAÇÕES GERAIS
+
+- Desligue e guarde o seu telefone celular.
+- Antes de iniciar a prova, leia atentamente as instruções contidas neste caderno e esclareça as dúvidas com o avaliador, caso necessário. Para isso você terá os 30 minutos iniciais de ambientação para ler a prova na íntegra e reconhecer o posto de trabalho.
+- Aguarde o avaliador sinalizar o fim da ambientação ou informe a ele que você quer iniciar a prova. A partir desse momento contará o tempo de 03 horas para que você realize as atividades.
+- Para a execução desta prova, estão disponíveis no seu posto de trabalho: dispositivos IoT, equipamentos de rede, computador com software de programação, instrumentos de medição e toda a documentação técnica necessária para realização das atividades.
+- Durante a prova lembre-se de cumprir todas as exigências referentes às normas de saúde, segurança do trabalho e de meio ambiente.
+- Ao final da avaliação, este caderno e demais itens disponibilizados devem ser devolvidos ao Avaliador.
+- Para registrar o final da sua prova, você deverá assinar o canhoto da prova junto com o seu avaliador.
+- O avaliador está à disposição para dirimir qualquer dúvida, desde que não seja referente à resolução da prova.
+
+---
+SITUAÇÃO-PROBLEMA
+
+Implementação de sistema IoT para monitoramento remoto de tanques industriais em indústria química de Camaçari — BA.
+
+---
+CONTEXTUALIZAÇÃO
+
+A ChemBrasil Ltda., indústria química situada em Camaçari (BA), opera quatro tanques de armazenamento de solventes com capacidade total de 80.000 litros. O sistema de monitoramento atual é inteiramente analógico, com leituras manuais realizadas a cada 4 horas por operadores. Essa abordagem tem gerado riscos operacionais significativos: nos últimos 6 meses, dois incidentes de transbordamento causaram perdas estimadas em R$ 90.000 e autuações ambientais.
+
+A diretoria aprovou a implementação de uma solução IoT para monitoramento contínuo e remoto dos parâmetros críticos de cada tanque: nível (%), temperatura (°C) e pressão interna (kPa). Os dados devem ser acessíveis em tempo real via dashboard web e aplicativo móvel, com geração automática de alertas por e-mail e SMS quando qualquer parâmetro ultrapassar os limites operacionais definidos pela NR-20 e pelas fichas de dados de segurança (FISPQ) dos produtos armazenados.
+
+Você foi contratado como técnico em IoT responsável pela implementação completa do sistema, desde a instalação dos sensores até a disponibilização do dashboard ao supervisor de operações.
+
+---
+DESAFIO
+
+No papel de técnico em Internet das Coisas da empresa ChemTech Soluções, você deverá projetar, configurar e comissionar o sistema de monitoramento IoT dos quatro tanques industriais. A solução deve utilizar microcontroladores ESP32 com sensores de nível ultrassônico (JSN-SR04T), temperatura (DS18B20) e pressão (BMP280), comunicação via protocolo MQTT com broker na nuvem, e dashboard desenvolvido em Node-RED com persistência de dados em banco InfluxDB.
+
+Para realizar as atividades, estão disponíveis no posto de trabalho: 4 módulos ESP32 DevKit, sensores conforme especificados, fonte de alimentação 12V/5V, cabo UTP Cat6, access point Wi-Fi configurado (SSID: ChemBrasil_IoT | Senha: Chem@2025), notebook com Arduino IDE, Node-RED e InfluxDB instalados, e toda a documentação técnica (datasheets, manual de instalação, FISPQ dos produtos).
+
+---
+RESULTADOS E ENTREGAS ESPERADOS
+
+Entrega 1 — Diagrama de Arquitetura do Sistema (Tempo estimado: 30 min)
+Elabore o diagrama completo da arquitetura IoT, contendo: topologia de rede (ESP32 → Wi-Fi → Broker MQTT → Node-RED → InfluxDB → Dashboard), endereçamento IP de cada dispositivo, identificação dos tópicos MQTT para cada sensor/tanque, e legenda com os protocolos utilizados em cada camada.
+
+Entrega 2 — Programação dos Dispositivos ESP32 (Tempo estimado: 70 min)
+Desenvolva e grave o firmware nos 4 módulos ESP32. O código deve: realizar leitura dos 3 sensores a cada 30 segundos; publicar os dados no broker MQTT em formato JSON com timestamp; implementar reconexão automática ao Wi-Fi e ao broker em caso de queda; acender LED vermelho quando qualquer parâmetro ultrapassar os limites configurados; e exibir status da conexão via Serial Monitor para fins de diagnóstico.
+
+Entrega 3 — Configuração do Broker e Fluxos Node-RED (Tempo estimado: 50 min)
+Configure o broker MQTT (Mosquitto) e desenvolva os fluxos Node-RED para: receber e decodificar os payloads JSON de todos os tanques; persistir os dados no InfluxDB com tags de identificação (tanque, sensor, unidade); gerar alertas automáticos por e-mail (configurar nó smtp) quando nível > 90% ou temperatura > 60°C ou pressão > 150 kPa; e exportar os fluxos em arquivo flows.json para entrega.
+
+Entrega 4 — Dashboard de Monitoramento (Tempo estimado: 40 min)
+Construa o dashboard no Node-RED Dashboard (node-red-dashboard) contendo: 4 gauges de nível (um por tanque, escala 0-100%); gráfico de linha histórico de temperatura das últimas 2 horas; tabela de alertas com timestamp, tanque, parâmetro e valor; e indicador de status de conectividade de cada ESP32 (online/offline). O dashboard deve ser responsivo e acessível pelo endereço IP local da rede ChemBrasil_IoT.
+
+Entrega 5 — Relatório de Comissionamento e Plano de Testes (Tempo estimado: 30 min)
+Preencha o relatório de comissionamento com: resultado dos testes de cada sensor (valor medido vs. valor de referência); latência medida entre leitura do sensor e exibição no dashboard; procedimento de teste de falha simulada (desconexão de um ESP32) e comportamento observado; e checklist de conformidade com a NR-20 para instalação em área classificada.
+
+---
+ESPECIFICAÇÕES TÉCNICAS DAS ENTREGAS
+
+Entrega 1 — Diagrama de Arquitetura
+**Requisitos técnicos:** Utilizar notação padronizada (blocos com identificação); representar todas as camadas da arquitetura IoT (percepção, rede, processamento, aplicação); indicar os protocolos em cada enlace (IEEE 802.11n, TCP/IP, MQTT 3.1.1, HTTP). Ferramentas aceitas: draw.io, Lucidchart ou papel milimetrado.
+**Critérios de aceitação:** Diagrama legível, sem erros de topologia, com todos os 4 tanques representados e tópicos MQTT nomeados no formato tanque/[01-04]/[nivel|temperatura|pressao].
+
+Entrega 2 — Firmware ESP32
+**Requisitos técnicos:** Linguagem C++ (Arduino framework); biblioteca PubSubClient para MQTT; ArduinoJson para serialização; OneWire + DallasTemperature para DS18B20; payload JSON mínimo: {"tanque":"01","nivel":72.5,"temp":38.2,"pressao":102.1,"ts":1716800000}. QoS MQTT nível 1. Watchdog timer habilitado.
+**Critérios de aceitação:** Firmware compila sem erros; dados chegam ao broker a cada 30s ±5s; reconexão funciona após simular queda de Wi-Fi; LED de alerta acende corretamente nos limites definidos. Referência: ESP-IDF Programming Guide, datasheet JSN-SR04T.
+
+Entrega 3 — Broker e Node-RED
+**Requisitos técnicos:** Broker Mosquitto configurado com autenticação (usuário: saep / senha: Saep@2025); tópicos com retenção habilitada (retain=true); flows Node-RED com tratamento de erro em todos os nós críticos; dados gravados no InfluxDB measurement "tanques" com campo "valor" e tags "tanque", "sensor".
+**Critérios de aceitação:** Todos os payloads chegam ao InfluxDB sem perda; alerta de e-mail disparado em até 60s após ultrapassar limite; arquivo flows.json exportado e funcional em reimportação.
+
+Entrega 4 — Dashboard
+**Requisitos técnicos:** Tema escuro (dark theme); atualização automática dos gauges sem refresh manual; histórico de 120 pontos mínimos no gráfico; tabela de alertas com no mínimo os 20 últimos registros.
+**Critérios de aceitação:** Dashboard acessível em http://[IP-local]:1880/ui; todos os 4 tanques exibidos simultaneamente; indicador offline muda em até 35s após desconexão do ESP32.
+
+Entrega 5 — Relatório de Comissionamento
+**Requisitos técnicos:** Preencher o formulário físico disponível no posto de trabalho; mínimo 3 testes documentados por sensor; latência medida com cronômetro (tempo entre publicação MQTT e atualização visual no dashboard).
+**Critérios de aceitação:** Todos os campos preenchidos; desvio de medição dos sensores dentro da tolerância do datasheet (±3% para nível, ±0.5°C para temperatura, ±1 kPa para pressão); procedimento de falha testado e documentado.
+
+---
+NOTA AO PROFESSOR — CRITÉRIOS DE AVALIAÇÃO
+
+**Entrega 1:** Verifique se o diagrama contempla todas as camadas e se os tópicos MQTT seguem a nomenclatura hierárquica correta. Erros comuns: omitir o broker como elemento central, não identificar protocolos.
+
+**Entrega 2:** Teste o firmware compilando na IDE e simulando a queda de rede (desabilitar SSID temporariamente). Observe se o LED de alerta funciona. Penalize firmwares sem tratamento de reconexão.
+
+**Entrega 3:** Importe o flows.json em uma instalação limpa do Node-RED para validar. Verifique os dados no InfluxDB via comando: influx query 'from(bucket:"saep") |> range(start:-1h)'.
+
+**Entrega 4:** Acesse o dashboard pelo IP local. Simule ultrapassagem de limite alterando o valor publicado via cliente MQTT (ex: MQTT Explorer). Verifique se o alerta aparece na tabela.
+
+**Entrega 5:** Compare os valores registrados com os valores de referência calibrados previamente pelo professor. Desvios acima da tolerância do datasheet devem ser investigados (mau contato, fonte ruidosa).
+
+**Diferencial satisfatório vs. insatisfatório:** Aluno satisfatório entrega sistema funcional end-to-end com dados chegando ao dashboard. Insatisfatório: sistema com lacunas (ex: dashboard sem dados reais, firmware sem reconexão, relatório incompleto).`
+};
+
+function loadExample() {
+  // Preenche o estado com o exemplo
+  state.selectedCourse  = EXAMPLE_PROVA.course;
+  state.selectedDiff    = EXAMPLE_PROVA.diff;
+  state.selectedFormat  = EXAMPLE_PROVA.format;
+  state.generatedText   = EXAMPLE_PROVA.text;
+  editMode = false;
+
+  // Marca visualmente os campos
+  selectDiff(EXAMPLE_PROVA.diff);
+  selectFormat(EXAMPLE_PROVA.format);
+
+  const sc = COURSES.find(c => c.id === EXAMPLE_PROVA.course.id);
+  if (sc) {
+    state.selectedCourse = sc;
+    filterCourses();
+    document.getElementById('selectedCourseName').textContent = sc.name;
+    document.getElementById('selectedCourseInfo').style.display = 'block';
+  }
+
+  updateStepIndicators();
+  renderResult(EXAMPLE_PROVA.text);
+  document.getElementById('resultArea').scrollIntoView({ behavior: 'smooth' });
+  showToast('Prova de exemplo carregada!', 'success');
+}

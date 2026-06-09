@@ -23,6 +23,9 @@
       <span class="header-title">Gerador de Provas Práticas</span>
     </div>
     <div class="header-actions">
+      <button class="btn-help" id="btnHelp" onclick="openHelp()" title="Como usar">
+        <i class="ti ti-help"></i>
+      </button>
       <button class="btn-config" id="btnConfig">
         <div class="provider-dot" id="providerDot"></div>
         <span id="btnConfigLabel">Configurar IA</span>
@@ -36,57 +39,292 @@
   <div class="modal-box">
     <div class="modal-top">
       <div>
-        <h2>Provedor de IA</h2>
-        <p>Escolha o serviço e informe sua chave. Salva apenas no seu navegador.</p>
+        <h2 id="modalConfigTitle">Configurar IA</h2>
+        <p id="modalConfigDesc">Escolha como deseja usar a inteligência artificial.</p>
       </div>
       <button class="modal-close" onclick="closeConfig()"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body">
-      <div class="provider-grid" id="providerGrid">
-        <div class="provider-card" id="prov-gemini" onclick="selectProvider('gemini')">
-          <div class="prov-logo gemini">G</div>
-          <div class="prov-name">Gemini</div>
-          <div class="prov-tag free">Gratuito</div>
+
+      <!-- MODO SELECTOR: Professor ou Admin -->
+      <div class="mode-tabs" id="modeTabs">
+        <button class="mode-tab active" id="tabProfessor" onclick="switchMode('professor')">
+          <i class="ti ti-user"></i> Professor
+        </button>
+        <button class="mode-tab" id="tabAdmin" onclick="switchMode('admin')">
+          <i class="ti ti-shield"></i> Admin
+        </button>
+      </div>
+
+      <!-- ── MODO PROFESSOR ── -->
+      <div id="modeProfessor">
+
+        <!-- Banner: chave institucional ativa -->
+        <div class="inst-banner" id="instBanner" style="display:none">
+          <i class="ti ti-circle-check"></i>
+          <div>
+            <strong>Chave institucional configurada</strong>
+            <span>O SENAI já configurou o acesso à IA. Você não precisa fazer nada.</span>
+          </div>
         </div>
-        <div class="provider-card" id="prov-groq" onclick="selectProvider('groq')">
-          <div class="prov-logo groq">Q</div>
-          <div class="prov-name">Groq</div>
-          <div class="prov-tag free">Gratuito</div>
+
+        <!-- Formulário chave própria -->
+        <div id="ownKeySection">
+          <p class="mode-intro">Use sua própria chave de API. Cada professor gerencia a sua.</p>
+          <div class="provider-grid" id="providerGrid">
+            <div class="provider-card" id="prov-gemini" onclick="selectProvider('gemini')">
+              <div class="prov-logo gemini">G</div>
+              <div class="prov-name">Gemini</div>
+              <div class="prov-tag free">Gratuito</div>
+            </div>
+            <div class="provider-card" id="prov-groq" onclick="selectProvider('groq')">
+              <div class="prov-logo groq">Q</div>
+              <div class="prov-name">Groq</div>
+              <div class="prov-tag free">Gratuito</div>
+            </div>
+            <div class="provider-card" id="prov-openai" onclick="selectProvider('openai')">
+              <div class="prov-logo openai">⬡</div>
+              <div class="prov-name">OpenAI</div>
+              <div class="prov-tag">Pago</div>
+            </div>
+            <div class="provider-card" id="prov-anthropic" onclick="selectProvider('anthropic')">
+              <div class="prov-logo anthropic">◆</div>
+              <div class="prov-name">Claude</div>
+              <div class="prov-tag">Pago</div>
+            </div>
+          </div>
+          <div class="provider-info-box" id="providerInfoBox"></div>
+          <label class="field-label" for="apiKeyInput" id="apiKeyLabel">Chave de API</label>
+          <div class="api-input-row">
+            <input type="password" id="apiKeyInput" placeholder="Selecione um provedor acima..." disabled autocomplete="off">
+            <button class="btn-eye" onclick="toggleApiVis()"><i class="ti ti-eye" id="eyeIcon"></i></button>
+          </div>
+          <p class="field-hint" id="apiKeyHint"></p>
         </div>
-        <div class="provider-card" id="prov-openai" onclick="selectProvider('openai')">
-          <div class="prov-logo openai">⬡</div>
-          <div class="prov-name">OpenAI</div>
-          <div class="prov-tag">Pago</div>
+
+        <p class="security-note">
+          <i class="ti ti-lock"></i>
+          Chaves salvas somente no seu navegador via <code>localStorage</code>. Nenhum servidor externo tem acesso.
+        </p>
+      </div>
+
+      <!-- ── MODO ADMIN ── -->
+      <div id="modeAdmin" style="display:none">
+        <p class="mode-intro">Configure uma chave institucional para que todos os professores usem sem precisar de conta própria.</p>
+
+        <div class="admin-step" id="adminStepAuth">
+          <label class="field-label"><i class="ti ti-key"></i> Senha de administrador</label>
+          <div class="api-input-row">
+            <input type="password" id="adminPassword" placeholder="Senha definida pelo coordenador..." autocomplete="off">
+            <button class="btn-eye" onclick="toggleAdminPassVis()"><i class="ti ti-eye" id="eyeAdminPass"></i></button>
+          </div>
+          <p class="field-hint">A senha protege a configuração institucional de alterações não autorizadas.</p>
+          <button class="btn-auth" onclick="authenticateAdmin()">
+            <i class="ti ti-arrow-right"></i> Acessar configuração
+          </button>
         </div>
-        <div class="provider-card" id="prov-anthropic" onclick="selectProvider('anthropic')">
-          <div class="prov-logo anthropic">◆</div>
-          <div class="prov-name">Claude</div>
-          <div class="prov-tag">Pago</div>
+
+        <div class="admin-step" id="adminStepConfig" style="display:none">
+          <div class="admin-authenticated">
+            <i class="ti ti-shield-check"></i> Acesso administrativo liberado
+          </div>
+
+          <label class="field-label" style="margin-top:1rem">Provedor institucional</label>
+          <div class="provider-grid" id="adminProviderGrid">
+            <div class="provider-card" id="admin-prov-gemini" onclick="selectAdminProvider('gemini')">
+              <div class="prov-logo gemini">G</div>
+              <div class="prov-name">Gemini</div>
+              <div class="prov-tag free">Gratuito</div>
+            </div>
+            <div class="provider-card" id="admin-prov-groq" onclick="selectAdminProvider('groq')">
+              <div class="prov-logo groq">Q</div>
+              <div class="prov-name">Groq</div>
+              <div class="prov-tag free">Gratuito</div>
+            </div>
+            <div class="provider-card" id="admin-prov-openai" onclick="selectAdminProvider('openai')">
+              <div class="prov-logo openai">⬡</div>
+              <div class="prov-name">OpenAI</div>
+              <div class="prov-tag">Pago</div>
+            </div>
+            <div class="provider-card" id="admin-prov-anthropic" onclick="selectAdminProvider('anthropic')">
+              <div class="prov-logo anthropic">◆</div>
+              <div class="prov-name">Claude</div>
+              <div class="prov-tag">Pago</div>
+            </div>
+          </div>
+
+          <label class="field-label" for="adminKeyInput" id="adminKeyLabel">Chave institucional</label>
+          <div class="api-input-row">
+            <input type="password" id="adminKeyInput" placeholder="Selecione um provedor acima..." disabled autocomplete="off">
+            <button class="btn-eye" onclick="toggleAdminKeyVis()"><i class="ti ti-eye" id="eyeAdminKey"></i></button>
+          </div>
+          <p class="field-hint" id="adminKeyHint"></p>
+
+          <div class="admin-warning">
+            <i class="ti ti-alert-triangle"></i>
+            A chave fica salva no navegador deste computador. Use um computador seguro e não compartilhado para esta configuração.
+          </div>
+
+          <label class="field-label" style="margin-top:1rem"><i class="ti ti-key"></i> Definir / alterar senha admin</label>
+          <input type="password" id="adminNewPassword" placeholder="Nova senha (deixe em branco para manter a atual)" autocomplete="new-password">
+          <p class="field-hint">Mínimo 6 caracteres. Compartilhe apenas com coordenadores.</p>
         </div>
       </div>
 
-      <div class="provider-info-box" id="providerInfoBox"></div>
-
-      <label class="field-label" for="apiKeyInput" id="apiKeyLabel">Chave de API</label>
-      <div class="api-input-row">
-        <input type="password" id="apiKeyInput" placeholder="Selecione um provedor acima..." disabled autocomplete="off">
-        <button class="btn-eye" onclick="toggleApiVis()"><i class="ti ti-eye" id="eyeIcon"></i></button>
-      </div>
-      <p class="field-hint" id="apiKeyHint"></p>
-
-      <p class="security-note">
-        <i class="ti ti-lock"></i>
-        Chaves salvas somente no seu navegador via <code>localStorage</code>. Nenhum servidor externo tem acesso.
-      </p>
     </div>
     <div class="modal-footer">
       <button class="btn-ghost" onclick="closeConfig()">Cancelar</button>
-      <button class="btn-solid" id="btnSaveKey" onclick="saveApiKey()" disabled>Salvar</button>
+      <button class="btn-solid" id="btnSaveKey" onclick="saveConfig()">Salvar</button>
     </div>
   </div>
 </div>
 
-<!-- API WARNING -->
+<!-- BANNER ONBOARDING (primeira visita) -->
+<div class="onboarding-banner" id="onboardingBanner" style="display:none">
+  <div class="onboarding-inner">
+    <i class="ti ti-sparkles"></i>
+    <div class="onboarding-text">
+      <strong>Bem-vindo ao Gerador de Provas SAEP!</strong>
+      <span>Crie sua primeira prova em menos de 2 minutos. Veja como funciona antes de começar.</span>
+    </div>
+    <div class="onboarding-actions">
+      <button class="btn-onboard-tour" onclick="openHelp()">
+        <i class="ti ti-map"></i> Ver tutorial
+      </button>
+      <button class="btn-onboard-close" onclick="dismissOnboarding()">
+        <i class="ti ti-x"></i>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL TUTORIAL -->
+<div class="modal-overlay" id="modalHelp">
+  <div class="modal-box modal-box-lg">
+    <div class="modal-top">
+      <div>
+        <h2>Como usar o Gerador de Provas</h2>
+        <p>Tudo que você precisa saber para criar sua primeira prova em minutos.</p>
+      </div>
+      <button class="modal-close" onclick="closeHelp()"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body help-body">
+
+      <!-- Passos -->
+      <div class="help-steps">
+
+        <div class="help-step">
+          <div class="help-step-num">1</div>
+          <div class="help-step-content">
+            <div class="help-step-title">Escolha o curso técnico</div>
+            <div class="help-step-desc">Selecione o curso que você leciona no grid de cursos. Use a busca para encontrar rapidamente. O sistema já conhece o currículo de todos os 17 cursos do SENAI.</div>
+          </div>
+        </div>
+
+        <div class="help-step">
+          <div class="help-step-num">2</div>
+          <div class="help-step-content">
+            <div class="help-step-title">Defina o nível de dificuldade</div>
+            <div class="help-step-desc">
+              <strong>Fácil</strong> — diagnóstica de entrada, conceitos básicos (1h30).<br>
+              <strong>Médio</strong> — aplicação prática intermediária (2h).<br>
+              <strong>Difícil</strong> — padrão SAEP completo, competências integradas (3h).
+            </div>
+          </div>
+        </div>
+
+        <div class="help-step">
+          <div class="help-step-num">3</div>
+          <div class="help-step-content">
+            <div class="help-step-title">Configure assets (opcional)</div>
+            <div class="help-step-desc">Se a prova precisar de arquivos externos (esquemas, imagens, planilhas), ative o toggle e cole o link do Google Drive. O link será incluído automaticamente na seção de Anexos da prova.</div>
+          </div>
+        </div>
+
+        <div class="help-step">
+          <div class="help-step-num">4</div>
+          <div class="help-step-content">
+            <div class="help-step-title">Escolha o formato e gere</div>
+            <div class="help-step-desc">Selecione PDF (para imprimir) ou DOCX (para editar no Word) e clique em <strong>Gerar prova</strong>. A IA leva entre 10 e 30 segundos para criar a prova completa.</div>
+          </div>
+        </div>
+
+        <div class="help-step">
+          <div class="help-step-num">5</div>
+          <div class="help-step-content">
+            <div class="help-step-title">Revise, edite e baixe</div>
+            <div class="help-step-desc">Leia a prova gerada. Se quiser ajustar algum trecho, clique em <strong>Editar</strong> — o texto fica editável e as alterações refletem no download. Depois clique em <strong>Baixar PDF</strong> ou <strong>Baixar DOCX</strong>.</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Dicas -->
+      <div class="help-divider">Dicas importantes</div>
+
+      <div class="help-tips">
+        <div class="help-tip">
+          <i class="ti ti-eye"></i>
+          <div>
+            <strong>Sempre revise antes de aplicar</strong>
+            A IA pode gerar conteúdo com pequenas imprecisões técnicas. Como especialista no curso, você é quem valida a prova antes de entregar aos alunos.
+          </div>
+        </div>
+        <div class="help-tip">
+          <i class="ti ti-refresh"></i>
+          <div>
+            <strong>Gerou mas não gostou?</strong>
+            Clique em <strong>Nova prova</strong> e gere novamente — a IA cria situações-problema diferentes a cada geração, nunca repete o mesmo cenário.
+          </div>
+        </div>
+        <div class="help-tip">
+          <i class="ti ti-file-check"></i>
+          <div>
+            <strong>Veja um exemplo antes de gerar</strong>
+            No topo da página há o botão <strong>"Ver exemplo de prova gerada"</strong> com uma prova completa de IoT para você ter referência do que esperar.
+          </div>
+        </div>
+        <div class="help-tip">
+          <i class="ti ti-shield"></i>
+          <div>
+            <strong>Acesso institucional já configurado</strong>
+            Você não precisa de chave de API própria. O SENAI já configurou o acesso à IA para todos os professores.
+          </div>
+        </div>
+      </div>
+
+      <!-- FAQ -->
+      <div class="help-divider">Perguntas frequentes</div>
+
+      <div class="faq-list">
+        <div class="faq-item" onclick="toggleFaq(this)">
+          <div class="faq-q"><i class="ti ti-chevron-right"></i> Quanto tempo leva para gerar uma prova?</div>
+          <div class="faq-a">Entre 10 e 30 segundos, dependendo do provedor de IA e da conexão com a internet. O Groq é o mais rápido.</div>
+        </div>
+        <div class="faq-item" onclick="toggleFaq(this)">
+          <div class="faq-q"><i class="ti ti-chevron-right"></i> Posso gerar provas para qualquer curso do SENAI?</div>
+          <div class="faq-a">Sim. O sistema suporta os 17 cursos técnicos listados no grid. A IA utiliza o conhecimento dos Projetos Pedagógicos de Curso (PPCs) e Itinerários Formativos do SENAI para gerar conteúdo técnico preciso.</div>
+        </div>
+        <div class="faq-item" onclick="toggleFaq(this)">
+          <div class="faq-q"><i class="ti ti-chevron-right"></i> O conteúdo gerado é sempre diferente?</div>
+          <div class="faq-a">Sim. A IA cria situações-problema, empresas fictícias e contextos únicos a cada geração. Mesmo selecionando o mesmo curso e dificuldade, cada prova terá um cenário diferente.</div>
+        </div>
+        <div class="faq-item" onclick="toggleFaq(this)">
+          <div class="faq-q"><i class="ti ti-chevron-right"></i> As provas geradas são salvas em algum lugar?</div>
+          <div class="faq-a">Não. Por questões de privacidade, o conteúdo das provas não é armazenado em nenhum servidor. Baixe o PDF ou DOCX antes de fechar a aba.</div>
+        </div>
+        <div class="faq-item" onclick="toggleFaq(this)">
+          <div class="faq-q"><i class="ti ti-chevron-right"></i> Posso usar o PDF diretamente com os alunos?</div>
+          <div class="faq-a">Sim, após revisão. O PDF gerado já segue o layout visual do SAEP com capa, campos do estudante e seções padronizadas. Recomendamos sempre revisar o conteúdo técnico antes de aplicar.</div>
+        </div>
+      </div>
+
+    </div>
+    <div class="modal-footer">
+      <button class="btn-solid" onclick="closeHelp()">Entendido, vamos começar!</button>
+    </div>
+  </div>
+</div>
 <div class="api-warning" id="apiWarning" style="display:none">
   <i class="ti ti-alert-triangle"></i>
   Nenhum provedor configurado.
@@ -99,6 +337,10 @@
     <p class="hero-eyebrow">Sistema SAEP</p>
     <h1>Provas práticas<br>em minutos.</h1>
     <p class="hero-sub">Selecione o curso, a dificuldade e deixe a IA gerar uma prova diagnóstica completa no padrão SENAI.</p>
+    <button class="btn-example" onclick="loadExample()">
+      <i class="ti ti-file-check"></i>
+      Ver exemplo de prova gerada
+    </button>
   </div>
 </div>
 
@@ -234,13 +476,36 @@
     <div class="result-topbar">
       <h2>Prova gerada</h2>
       <div class="result-actions">
-        <button class="btn-sm" id="copyBtn" onclick="copyProva()"><i class="ti ti-copy"></i> Copiar</button>
-        <button class="btn-sm" onclick="printProva()"><i class="ti ti-printer"></i> Imprimir</button>
-        <button class="btn-sm" onclick="resetForm()"><i class="ti ti-refresh"></i> Nova prova</button>
+        <button class="btn-sm btn-sm-toggle" id="btnToggleEdit" onclick="toggleEdit()">
+          <i class="ti ti-pencil"></i> Editar
+        </button>
+        <button class="btn-sm" id="copyBtn" onclick="copyProva()">
+          <i class="ti ti-copy"></i> Copiar
+        </button>
+        <button class="btn-sm" id="btnDownloadPDF" onclick="downloadPDF()">
+          <i class="ti ti-file-type-pdf"></i> Baixar PDF
+        </button>
+        <button class="btn-sm" id="btnDownloadDOCX" onclick="downloadDOCX()">
+          <i class="ti ti-file-type-doc"></i> Baixar DOCX
+        </button>
+        <button class="btn-sm" onclick="resetForm()">
+          <i class="ti ti-refresh"></i> Nova prova
+        </button>
       </div>
     </div>
     <div class="result-meta" id="resultMeta"></div>
+
+    <!-- Visualização formatada -->
     <div class="result-body" id="resultBody"></div>
+
+    <!-- Editor de texto (oculto por padrão) -->
+    <div class="result-editor" id="resultEditor" style="display:none">
+      <div class="editor-hint">
+        <i class="ti ti-info-circle"></i>
+        Edite o texto abaixo. As alterações serão refletidas no PDF e DOCX baixados.
+      </div>
+      <textarea id="editorTextarea" spellcheck="true" oninput="syncEditToState()"></textarea>
+    </div>
   </div>
 
 </main>
@@ -255,7 +520,9 @@
   </div>
 </footer>
 
-<script src="js/courses.js"></script>
-<script src="js/app.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="js/courses.js"></script>
+  <script src="js/pdf-export.js"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>
