@@ -437,9 +437,6 @@ const PROVIDERS = {
   },
 };
 
-// Provedor selecionado atualmente no modal
-let modalSelectedProvider = null;
-
 function getActiveProvider() {
   return localStorage.getItem('saep_active_provider') || null;
 }

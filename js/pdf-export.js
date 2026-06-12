@@ -378,15 +378,19 @@ function exportDOCX(provaText, meta) {
 /* ── Utils ────────────────────────────────────────────────── */
 function escRTF(str) {
   if (!str) return '';
-  return str
-    .replace(/\/g, '\\')
-    .replace(/[{}]/g, c => '\' + c)
-    .replace(/[^\x00-\x7F]/g, c => {
-      const code = c.charCodeAt(0);
-      return "\u" + code + "?";
-    });
+  str = str.replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1');
+  let result = '';
+  for (let i = 0; i < str.length; i++) {
+    const c    = str[i];
+    const code = str.charCodeAt(i);
+    if (c === '\\')     { result += '\\\\'; }
+    else if (c === '{')  { result += '\\{'; }
+    else if (c === '}')  { result += '\\}'; }
+    else if (code > 127) { result += '\\u' + code + '?'; }
+    else                 { result += c; }
+  }
+  return result;
 }
-
 function slugify(str) {
   return (str || 'curso')
     .toLowerCase()
