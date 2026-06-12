@@ -1026,6 +1026,13 @@ async function generateProva() {
     state.generatedText = text;
     stopLoading();
     renderResult(text);
+    // D8 + D9
+    incrementCounter();
+    saveToHistory(text, {
+      course: state.selectedCourse.name,
+      diff:   state.selectedDiff,
+      format: state.selectedFormat,
+    });
   } catch (err) {
     stopLoading();
     const provName = PROVIDERS[getActiveProvider()]?.name || 'IA';
@@ -1140,7 +1147,120 @@ function copyProva() {
   });
 }
 
-/* ── Tutorial / Onboarding (I6) ───────────────────────────── */
+/* ── D8: Contador de provas geradas ───────────────────────── */
+const COUNTER_KEY = 'saep_provas_count';
+const HISTORY_KEY = 'saep_provas_history';
+
+function incrementCounter() {
+  const n = (parseInt(localStorage.getItem(COUNTER_KEY) || '0')) + 1;
+  localStorage.setItem(COUNTER_KEY, n);
+  updateCounterDisplay();
+}
+
+function updateCounterDisplay() {
+  const n   = parseInt(localStorage.getItem(COUNTER_KEY) || '0');
+  const el  = document.getElementById('footerCounter');
+  const txt = document.getElementById('counterText');
+  if (!el) return;
+  if (n > 0) {
+    el.style.display = 'flex';
+    txt.textContent  = n === 1 ? '1 prova gerada' : `${n} provas geradas`;
+  }
+}
+
+/* ── D9: Histórico das últimas 10 provas ──────────────────── */
+function saveToHistory(text, meta) {
+  const history = getHistory();
+  history.unshift({
+    id:     Date.now(),
+    date:   new Date().toLocaleString('pt-BR'),
+    course: meta.course,
+    diff:   meta.diff,
+    format: meta.format,
+    text:   text,
+  });
+  // Mantém apenas as últimas 10
+  const trimmed = history.slice(0, 10);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(trimmed));
+}
+
+function getHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+  } catch(e) {
+    return [];
+  }
+}
+
+function openHistory() {
+  const history = getHistory();
+  const list    = document.getElementById('historyList');
+  const diffLabel = { easy: '🟢 Fácil', med: '🟡 Médio', hard: '🔴 Difícil' };
+
+  if (history.length === 0) {
+    list.innerHTML = '<div class="history-empty"><i class="ti ti-inbox"></i><p>Nenhuma prova gerada ainda.</p></div>';
+  } else {
+    list.innerHTML = history.map((item, i) => `
+      <div class="history-item">
+        <div class="history-meta">
+          <span class="history-course">${item.course}</span>
+          <span class="history-diff">${diffLabel[item.diff] || item.diff}</span>
+          <span class="history-date">${item.date}</span>
+        </div>
+        <div class="history-actions">
+          <button class="btn-sm" onclick="loadFromHistory(${i})">
+            <i class="ti ti-download"></i> Carregar
+          </button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  document.getElementById('modalHistory').classList.add('open');
+}
+
+function closeHistory() {
+  document.getElementById('modalHistory').classList.remove('open');
+}
+
+function loadFromHistory(index) {
+  const history = getHistory();
+  const item    = history[index];
+  if (!item) return;
+
+  // Restaura estado
+  const course = COURSES.find(c => c.name === item.course);
+  if (course) {
+    state.selectedCourse = course;
+    filterCourses();
+    document.getElementById('selectedCourseName').textContent = course.name;
+    document.getElementById('selectedCourseInfo').style.display = 'block';
+  }
+  state.selectedDiff   = item.diff;
+  state.selectedFormat = item.format;
+  state.generatedText  = item.text;
+  editMode = false;
+
+  selectDiff(item.diff);
+  selectFormat(item.format);
+  updateStepIndicators();
+  closeHistory();
+  renderResult(item.text);
+  document.getElementById('resultArea').scrollIntoView({ behavior: 'smooth' });
+  showToast('Prova carregada do histórico!', 'success');
+}
+
+function clearHistory() {
+  if (!confirm('Limpar todo o histórico de provas?')) return;
+  localStorage.removeItem(HISTORY_KEY);
+  localStorage.setItem(COUNTER_KEY, '0');
+  updateCounterDisplay();
+  document.getElementById('footerCounter').style.display = 'none';
+  closeHistory();
+  showToast('Histórico limpo.', 'info');
+}
+
+
 const ONBOARDING_KEY = 'saep_onboarding_done';
 
 function initOnboarding() {
@@ -1318,11 +1438,18 @@ document.addEventListener('DOMContentLoaded', () => {
   checkApiKey();
   updateProviderBadge();
   initOnboarding();
+  updateCounterDisplay();
 
   document.getElementById('btnConfig').addEventListener('click', openConfig);
   document.getElementById('btnHelp').addEventListener('click', openHelp);
   document.getElementById('modalHelp').addEventListener('click', function(e) {
     if (e.target === this) closeHelp();
+  });
+  document.getElementById('modalHistory').addEventListener('click', function(e) {
+    if (e.target === this) closeHistory();
+  });
+  document.getElementById('modalConfig').addEventListener('click', function(e) {
+    if (e.target === this) closeConfig();
   });
 });
 
